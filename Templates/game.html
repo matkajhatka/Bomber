@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bomber Game</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-image: url('https://images.app.goo.gl/vfYM1msnASScyDWK9'); /* Replace with actual image URL */
+            background-size: cover;
+            background-repeat: no-repeat;
+            margin: 0;
+        }
+
+        .game-container {
+            text-align: center;
+            background-color: rgba(255, 255, 255, 0.8); /* Slightly transparent white background */
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .top-buttons {
+            margin-bottom: 20px;
+        }
+
+        .bottom-buttons {
+            margin-top: 20px;
+        }
+
+        button {
+            margin: 0 10px;
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        .game-board {
+            display: grid;
+            grid-template-columns: repeat(4, 50px);
+            grid-template-rows: repeat(5, 50px);
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .box {
+            width: 50px;
+            height: 50px;
+            background-color: #FFD700; /* Gold color to stand out against the background */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 18px;
+            cursor: pointer;
+            border-radius: 10px;
+            box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .hidden {
+            background-color: grey;
+        }
+
+        #playerName {
+            font-size: 24px;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+
+        #winningPoints {
+            font-size: 20px;
+            margin: 20px 0;
+            color: green;
+            font-weight: bold;
+        }
+
+        #error-message {
+            color: red;
+        }
+
+        #winningSticker {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            color: gold;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 10px 20px;
+            border-radius: 10px;
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+            pointer-events: none; /* Prevent interaction with the sticker */
+        }
+
+        #winningSticker.visible {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <div id="playerName">Welcome, {{ session['username'] }}!</div>
+
+        <h1>Bomb and Gift Game</h1>
+
+        <div class="top-buttons">
+            <button onclick="window.location.href='{{ url_for('update_balance') }}'">Deposit</button>
+            <button onclick="window.location.href='{{ url_for('logout') }}'">Logout</button>
+        </div>
+
+        <div class="score-container">
+            <p>Withdrawal Balance: <span id="balance">{{ session['balance'] }}</span></p>
+        </div>
+
+        <div class="bet-control">
+            <p>Bet Amount: <span id="betAmount">12</span></p>
+            <button onclick="adjustBet('subtract')" id="subtractButton">-12</button>
+            <button onclick="adjustBet('add')" id="addButton">+12</button>
+        </div>
+
+        <div id="winningPoints">Winning: 0</div>
+
+        <div class="game-board" id="gameBoard"></div>
+
+        <div class="bottom-buttons">
+            <button onclick="startGame()" id="startButton">Start</button>
+            <button onclick="resetGame()">Reset</button>
+            <button onclick="quitGame()">Deposit</button>
+        </div>
+
+        <div id="error-message"></div>
+    </div>
+
+    <!-- Winning Sticker -->
+    <div id="winningSticker"></div>
+
+    <script>
+        let betAmount = 12;
+        let balance = {{ session['balance'] }};
+        let winningPoints = 0;
+        let gameOver = false;
+        let gameStarted = false;
+
+        const gameBoard = document.getElementById('gameBoard');
+        const balanceDisplay = document.getElementById('balance');
+        const betAmountDisplay = document.getElementById('betAmount');
+        const winningPointsDisplay = document.getElementById('winningPoints');
+        const errorMessage = document.getElementById('error-message');
+        const winningSticker = document.getElementById('winningSticker');
+
+        function initGame() {
+            gameBoard.innerHTML = '';
+            winningPoints = 0;
+            gameOver = false;
+            gameStarted = false;
+            errorMessage.textContent = '';
+            winningPointsDisplay.textContent = `Winning: ${winningPoints}`;
+            enableBetButtons(true);
+
+            const bombCount = 10; // Set bomb count to 10
+            const bombPositions = new Set();
+            while (bombPositions.size < bombCount) {
+                bombPositions.add(Math.floor(Math.random() * 20));
+            }
+
+            const giftPositions = new Set();
+            while (giftPositions.size < (20 - bombCount)) {
+                const pos = Math.floor(Math.random() * 20);
+                if (!bombPositions.has(pos)) {
+                    giftPositions.add(pos);
+                }
+            }
+
+            for (let i = 0; i < 20; i++) {
+                const box = document.createElement('div');
+                box.classList.add('box');
+                box.classList.add('hidden');
+                box.dataset.index = i;
+                box.addEventListener('click', () => revealBox(i, bombPositions, giftPositions));
+                gameBoard.appendChild(box);
+            }
+
+            balanceDisplay.textContent = balance;
+        }
+
+        function enableBetButtons(enable) {
+            document.getElementById('addButton').disabled = !enable;
+            document.getElementById('subtractButton').disabled = !enable;
+        }
+
+        function adjustBet(action) {
+            if (!gameStarted) {
+                if (action === 'add' && betAmount < 144) {
+                    betAmount += 12;
+                } else if (action === 'subtract' && betAmount > 12) {
+                    betAmount -= 12;
+                }
+                betAmountDisplay.textContent = betAmount;
+            }
+        }
+
+        function startGame() {
+            if (balance < betAmount) {
+                alert('Insufficient balance to start the game.');
+                return;
+            }
+
+            if (!gameStarted) {
+                balance -= betAmount;
+                updateBalance(balance);
+                gameStarted = true;
+                enableBetButtons(false);
+            }
+        }
+
+        function revealBox(index, bombPositions, giftPositions) {
+            if (gameOver || !gameStarted) return;
+
+            const box = document.querySelector(`.box[data-index='${index}']`);
+            const multipliers = [1.0, 1.2, 1.3, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0];
+            const randomMultiplier = multipliers[Math.floor(Math.random() * multipliers.length)];
+
+            if (bombPositions.has(index)) {
+                box.textContent = '💣';
+                box.style.backgroundColor = 'red';
+                gameOver = true;
+                winningPoints = 0;
+            } else if (giftPositions.has(index)) {
+                const giftValue = betAmount * randomMultiplier;
+                box.textContent = '🎁';
+                box.style.backgroundColor = 'green';
+                winningPoints += giftValue;
+                displayWinningSticker(giftValue); // Show the winning sticker
+            } else {
+                box.textContent = '❓';
+                box.style.backgroundColor = 'blue';
+            }
+
+            box.classList.remove('hidden');
+            winningPointsDisplay.textContent = `Winning: ${winningPoints.toFixed(2)}`;
+        }
+
+        function displayWinningSticker(amount) {
+            winningSticker.textContent = `You won ${amount.toFixed(2)}! 🎉`;
+            winningSticker.classList.add('visible');
+
+            setTimeout(() => {
+                winningSticker.classList.remove('visible');
+            }, 2000); // Sticker disappears after 2 seconds
+        }
+
+        function resetGame() {
+            initGame();
+        }
+
+        function quitGame() {
+            if (gameStarted && winningPoints > 0) {
+                balance += winningPoints;
+                updateBalance(balance);
+            }
+            initGame();
+        }
+
+        function updateBalance(newBalance) {
+            fetch('/update_balance', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ balance: newBalance }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    balance = newBalance;
+                    balanceDisplay.textContent = balance;
+                } else {
+                    errorMessage.textContent = 'Success.';
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                errorMessage.textContent = 'Error updating balance. Please try again.';
+            });
+        }
+
+        window.onload = function() {
+            initGame();
+        };
+    </script>
+</body>
+</html>
